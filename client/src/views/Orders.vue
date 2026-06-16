@@ -8,6 +8,47 @@
     <div v-if="loading" class="loading">{{ t('common.loading') }}</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else>
+
+      <!-- Submitted Orders section (restocking orders) -->
+      <div
+        v-if="getOrdersByStatus('Submitted').length > 0"
+        class="card submitted-orders-card"
+      >
+        <div class="card-header submitted-header">
+          <h3 class="card-title">
+            Submitted Orders
+            <span class="submitted-count-badge">{{ getOrdersByStatus('Submitted').length }}</span>
+          </h3>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Order #</th>
+                <th>Items</th>
+                <th>Total Value</th>
+                <th>Order Date</th>
+                <th>Expected Delivery</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="order in getOrdersByStatus('Submitted')" :key="order.order_number">
+                <td><strong>{{ order.order_number }}</strong></td>
+                <td>
+                  <span v-if="order.items.length <= 2">
+                    {{ order.items.map(i => i.name).join(', ') }}
+                  </span>
+                  <span v-else>{{ order.items.length }} items</span>
+                </td>
+                <td><strong>${{ order.total_value.toLocaleString() }}</strong></td>
+                <td>{{ formatDate(order.order_date) }}</td>
+                <td>{{ formatDeliveryDate(order.expected_delivery) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="stats-grid">
         <div class="stat-card success">
           <div class="stat-label">{{ t('status.delivered') }}</div>
@@ -153,6 +194,17 @@ export default {
       })
     }
 
+    const formatDeliveryDate = (dateString) => {
+      if (!dateString) return '—'
+      const d = new Date(dateString)
+      if (isNaN(d.getTime())) return '—'
+      return d.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      })
+    }
+
     onMounted(loadOrders)
 
     return {
@@ -163,6 +215,7 @@ export default {
       getOrdersByStatus,
       getOrderStatusClass,
       formatDate,
+      formatDeliveryDate,
       currencySymbol,
       translateProductName,
       translateCustomerName
@@ -275,5 +328,34 @@ export default {
 .item-meta {
   font-size: 0.813rem;
   color: #64748b;
+}
+
+/* Submitted Orders card */
+.submitted-orders-card {
+  border-left: 3px solid #2563eb;
+}
+
+.submitted-header {
+  background: #eff6ff;
+  margin: -1.25rem -1.25rem 1rem -1.25rem;
+  padding: 0.875rem 1.25rem;
+  border-radius: 10px 10px 0 0;
+  border-bottom: 1px solid #dbeafe;
+}
+
+.submitted-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #2563eb;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 700;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.375rem;
+  border-radius: 9999px;
+  margin-left: 0.5rem;
+  vertical-align: middle;
 }
 </style>
