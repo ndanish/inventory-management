@@ -4,6 +4,9 @@ from typing import List, Optional
 from pydantic import BaseModel
 from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
 
+# In-memory store for restocking orders created via POST; cleared on server restart
+submitted_orders = []
+
 app = FastAPI(title="Factory Inventory Management System")
 
 # Quarter mapping for date filtering
@@ -120,6 +123,23 @@ class CreatePurchaseOrderRequest(BaseModel):
     expected_delivery_date: str
     notes: Optional[str] = None
 
+class OrderItem(BaseModel):
+    sku: str
+    name: str
+    quantity: int
+    unit_price: float
+
+class CreateOrderRequest(BaseModel):
+    order_number: str
+    customer: str
+    items: List[OrderItem]
+    status: str
+    order_date: str
+    expected_delivery: str
+    total_value: float
+    warehouse: Optional[str] = None
+    category: Optional[str] = None
+
 # API endpoints
 @app.get("/")
 def root():
@@ -149,17 +169,28 @@ def get_orders(
     month: Optional[str] = None
 ):
     """Get all orders with optional filtering"""
-    filtered_orders = apply_filters(orders, warehouse, category, status)
+    # Combine static orders with submitted restocking orders
+    all_orders = orders + submitted_orders
+    filtered_orders = apply_filters(all_orders, warehouse, category, status)
     filtered_orders = filter_by_month(filtered_orders, month)
     return filtered_orders
 
 @app.get("/api/orders/{order_id}", response_model=Order)
 def get_order(order_id: str):
     """Get a specific order"""
-    order = next((order for order in orders if order["id"] == order_id), None)
-    if not order:
+    all_orders = orders + submitted_orders
+    found = next((o for o in all_orders if o["id"] == order_id), None)
+    if not found:
         raise HTTPException(status_code=404, detail="Order not found")
-    return order
+    return found
+
+@app.post("/api/orders", response_model=Order)
+def create_order(order: CreateOrderRequest):
+    """Create a new restocking order"""
+    new_id = str(len(orders) + len(submitted_orders) + 1)
+    new_order = {"id": new_id, **order.model_dump()}
+    submitted_orders.append(new_order)
+    return new_order
 
 @app.get("/api/demand", response_model=List[DemandForecast])
 def get_demand_forecasts():
@@ -303,6 +334,47 @@ def get_monthly_trends():
     result = list(months.values())
     result.sort(key=lambda x: x['month'])
     return result
+
+# In-memory task store; cleared on server restart
+_tasks = []
+_task_id_counter = 1
+
+class Task(BaseModel):
+    id: int
+    title: str
+    status: str  # 'pending' or 'completed'
+
+class CreateTaskRequest(BaseModel):
+    title: str
+
+@app.get("/api/tasks", response_model=List[Task])
+def get_tasks():
+    return _tasks
+
+@app.post("/api/tasks", response_model=Task, status_code=201)
+def create_task(body: CreateTaskRequest):
+    global _task_id_counter
+    task = {"id": _task_id_counter, "title": body.title, "status": "pending"}
+    _task_id_counter += 1
+    _tasks.append(task)
+    return task
+
+@app.delete("/api/tasks/{task_id}", status_code=204)
+def delete_task(task_id: int):
+    global _tasks
+    task = next((t for t in _tasks if t["id"] == task_id), None)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    _tasks = [t for t in _tasks if t["id"] != task_id]
+
+@app.patch("/api/tasks/{task_id}", response_model=Task)
+def toggle_task(task_id: int):
+    task = next((t for t in _tasks if t["id"] == task_id), None)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    # Toggle between pending and completed
+    task["status"] = "completed" if task["status"] == "pending" else "pending"
+    return task
 
 if __name__ == "__main__":
     import uvicorn
